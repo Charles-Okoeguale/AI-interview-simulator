@@ -43,6 +43,7 @@ export const AIInterviewSimulator: React.FC = () => {
     questionType: 'Mixed'
   });
   const [isInterviewActive, setIsInterviewActive] = useState(false);
+  const [showInterviewRoom, setShowInterviewRoom] = useState(false);
 
   useEffect(() => {
     const initializeServices = async () => {
@@ -58,23 +59,26 @@ export const AIInterviewSimulator: React.FC = () => {
       
       voiceService.on(VoiceInteractionService.Events.AI_SPEECH_START, () => {
         setSpeakingState(prev => ({ ...prev, isAISpeaking: true }));
+        console.log("AI is speaking")
       });
 
       voiceService.on(VoiceInteractionService.Events.AI_SPEECH_END, () => {
         setSpeakingState(prev => ({ ...prev, isAISpeaking: false }));
+        console.log("AI has stopped speaking")
       });
 
       voiceService.on(VoiceInteractionService.Events.USER_SPEECH_START, () => {
         setSpeakingState(prev => ({ ...prev, isUserSpeaking: true }));
+        console.log('USER is speaking')
       });
 
       voiceService.on(VoiceInteractionService.Events.USER_SPEECH_END, () => {
         setSpeakingState(prev => ({ ...prev, isUserSpeaking: false }));
+        console.log("USER has stopped speaking")
       });
 
       try {
         const openAIService = new AIConversationService(apiKey, voiceService);
-        
         openAIService.on('conversationUpdate', (history: any[]) => {
           const formattedLog = history.map(msg => ({
             speaker: msg.role === 'assistant' ? 'Emily (AI)' : 'You',
@@ -82,7 +86,12 @@ export const AIInterviewSimulator: React.FC = () => {
           }));
           setConversationLog(formattedLog);
         });
-        
+
+        // ADD THIS NEW EVENT LISTENER
+        openAIService.on('aiSpeakingStateChange', (isSpeaking: boolean) => {
+          setSpeakingState(prev => ({ ...prev, isAISpeaking: isSpeaking }));
+        });
+
         setAIService(openAIService);
         
         await voiceService.initialize();
@@ -97,8 +106,15 @@ export const AIInterviewSimulator: React.FC = () => {
     initializeServices();
   }, []);
 
-  const startInterview = async () => {
 
+  const navigateToInterviewRoom = () => {
+    setShowSetup(false);
+    setShowInterviewRoom(true);
+    setIsInterviewActive(false);
+    setIsCallEnded(false);
+  };
+
+  const beginInterview = async () => {
     if (!aiService || !audioService) {
       alert('Services not initialized. Please check your environment configuration and API key.');
       return;
@@ -106,27 +122,27 @@ export const AIInterviewSimulator: React.FC = () => {
 
     setIsCallStarting(true);
     try {
-      const interviewContext = `You are Emily, a professional career coach and expert interviewer from CAREERONTRACK AI. 
-      
+      const interviewContext = `You are Emily, a professional AI interviewer. 
       Interview Details:
       - Candidate: ${interviewData.candidateName}
       - Position: ${interviewData.jobTitle}
-      - Questions: ${interviewData.numberOfQuestions}
-      - Difficulty: ${interviewData.difficulty}
-      - Type: ${interviewData.questionType}
-      
-      Instructions:
-      1. Warmly greet ${interviewData.candidateName}
-      2. Ask exactly ${interviewData.numberOfQuestions} ${interviewData.questionType.toLowerCase()} questions suitable for ${interviewData.difficulty} level
-      3. Listen to their responses and provide constructive feedback
-      4. Keep responses concise and engaging
-      5. End the interview professionally after all questions`;
+      - Questions: ${interviewData.numberOfQuestions} ${interviewData.questionType} questions
+      - Difficulty: ${interviewData.difficulty} level
 
+      Instructions:
+      1. Warmly greet ${interviewData.candidateName} and introduce yourself
+      2. Ask if they're here for AI Assistance (practice with sample answers) or Interview Prep (live practice with feedback)
+      3. Based on their choice:
+        - AI Assistance: Ask ${interviewData.numberOfQuestions} questions and provide detailed sample answers
+        - Interview Prep: Ask ${interviewData.numberOfQuestions} questions, listen to their responses, and provide constructive feedback
+      4. Keep responses concise and engaging
+      5. End the interview professionally after all questions
+
+      Style: Be warm, professional, and supportive throughout the conversation.`;
 
       setIsInterviewActive(true);
       setIsCallEnded(false);
       setIsCallStarting(false);
-      setShowSetup(false);
       
       await aiService.startConversation(interviewContext, 'Emily');
       
@@ -139,23 +155,23 @@ export const AIInterviewSimulator: React.FC = () => {
   };
 
   const endInterview = async () => {
-    if (audioService) {
-      audioService.stopAIResponse();
-      audioService.stopMonitoringAudio();
-      audioService.stopRecording();
-      audioService.cleanup();
-      audioService.removeAllListeners();
-    }
-
     if (aiService) {
+      aiService.stopProcessing();
+      
       const finalHistory = aiService.getConversationHistory();
       const formattedLog = finalHistory.map(msg => ({
         speaker: msg.role === 'assistant' ? 'Emily (AI)' : 'You',
         content: msg.content
       }));
       setConversationLog(formattedLog);
-      
-      aiService.clearConversation();
+    }
+
+    if (audioService) {
+      audioService.stopAIResponse();
+      audioService.stopMonitoringAudio();
+      audioService.stopRecording();
+      audioService.cleanup();
+      audioService.removeAllListeners();
     }
 
     setIsInterviewActive(false);
@@ -169,6 +185,7 @@ export const AIInterviewSimulator: React.FC = () => {
 
   const resetApp = () => {
     setShowSetup(true);
+    setShowInterviewRoom(false);
     setIsCallEnded(false);
     setIsInterviewActive(false);
     setConversationLog([]);
@@ -267,11 +284,73 @@ export const AIInterviewSimulator: React.FC = () => {
           </div>
           
           <button
-            onClick={startInterview}
-            disabled={!interviewData.candidateName || !interviewData.jobTitle || isCallStarting}
+            onClick={navigateToInterviewRoom}
+            disabled={!interviewData.candidateName || !interviewData.jobTitle}
             className="w-full py-3 mt-6 rounded-lg bg-gradient-to-r from-pink-500 to-purple-600 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:from-pink-600 hover:to-purple-700 transition-all"
           >
+            Enter Interview Room
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (showInterviewRoom && !isInterviewActive) {
+    return (
+      <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 max-w-2xl w-full border border-white/20">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-white mb-2">Interview Room</h1>
+          <p className="text-white/80">Ready to interview {interviewData.candidateName} for {interviewData.jobTitle}</p>
+        </div>
+        
+        <div className="flex justify-center gap-8 mb-8">
+          <div className="w-32 h-32 rounded-full border-2 border-white/30 agentImage flex items-center justify-center">
+            <img 
+              src="/emily.jpg" 
+              alt="AI Interviewer Emily" 
+              className="w-28 h-28 rounded-full object-cover"
+              onError={(e) => {
+                e.currentTarget.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiBmaWxsPSIjRkY2Qzk0Ii8+Cjx0ZXh0IHg9IjUwIiB5PSI1NSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE0IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+RW1pbHk8L3RleHQ+Cjwvc3ZnPg==';
+              }}
+            />
+          </div>
+
+          <div className="w-32 h-32 rounded-full border-2 border-white/30 userimage flex items-center justify-center">
+            <img 
+              src="/user-avatar.jpg" 
+              alt="User" 
+              className="w-28 h-28 rounded-full object-cover"
+              onError={(e) => {
+                e.currentTarget.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiBmaWxsPSIjNjM5NkZGIi8+Cjx0ZXh0IHg9IjUwIiB5PSI1NSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE0IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+WW91PC90ZXh0Pgo8L3N2Zz4=';
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="text-center mb-8">
+          <p className="text-white/60 mb-4">
+            Interview Settings: {interviewData.numberOfQuestions} {interviewData.questionType} questions at {interviewData.difficulty} level
+          </p>
+          <p className="text-white/60">
+            Click "Start Interview" when you're ready to begin
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={beginInterview}
+            disabled={isCallStarting}
+            className="py-3 rounded-lg bg-gradient-to-r from-pink-500 to-purple-600 text-white font-semibold hover:from-pink-600 hover:to-purple-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             {isCallStarting ? "Starting Interview..." : "Start Interview"}
+          </button>
+
+          <button
+            onClick={resetApp}
+            className="py-3 rounded-lg bg-gray-600 text-white font-semibold hover:bg-gray-700 transition-colors flex items-center justify-center gap-2"
+          >
+            <HiOutlineArrowLongLeft size={20} />
+            Back to Setup
           </button>
         </div>
       </div>
@@ -369,16 +448,16 @@ class VoiceInteractionService extends EventEmitter {
   private audioContext: AudioContext | null = null;
   private audioStream: MediaStream | null = null;
   private analyser: AnalyserNode | null = null;
-  private isSpeaking: boolean = false;
-  private silenceThreshold = -45; 
+  private silenceThreshold = -50; 
   private silenceTimer: NodeJS.Timeout | null = null;  
-  private silenceDelay = 0; 
-  private voiceThreshold = -5;
+  private silenceDelay = 1000; 
+  private voiceThreshold = -15;
+  private interruptionThreshold = -15;
   private isMonitoring = false; 
   private mediaRecorder: MediaRecorder | null = null;
   private audioChunks: Blob[] = [];
   private audioSource: AudioBufferSourceNode | null = null;
-  private isAISpeaking: boolean = false;
+  private isSpeaking: boolean = false;
 
   async initialize() {
     try {
@@ -393,6 +472,8 @@ class VoiceInteractionService extends EventEmitter {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
+          sampleRate: 44100,
+          channelCount: 1,
         }
       });
       
@@ -407,8 +488,6 @@ class VoiceInteractionService extends EventEmitter {
     if (this.analyser) {
       const dataArray = new Float32Array(this.analyser.frequencyBinCount);
       this.analyser.getFloatTimeDomainData(dataArray);
-      const volume = Math.max(...Array.from(dataArray));
-      const db = 20 * Math.log10(volume);
     }
   }
 
@@ -456,11 +535,6 @@ class VoiceInteractionService extends EventEmitter {
   async playAIResponse(audioBuffer: ArrayBuffer) {
     const audioContext = this.ensureAudioContext();  
 
-    if (this.isAISpeaking) {
-      console.log('AI is already speaking. Ignoring new play request.');
-      return;
-    }
-    
     try {
       if (this.audioStream) {
         const streamSource = audioContext.createMediaStreamSource(this.audioStream);
@@ -474,7 +548,6 @@ class VoiceInteractionService extends EventEmitter {
       this.audioSource = source;
 
       source.onended = () => {
-        this.isAISpeaking = false;
         this.emit(VoiceInteractionService.Events.AI_SPEECH_END);
         
         if (this.audioStream) {
@@ -486,34 +559,31 @@ class VoiceInteractionService extends EventEmitter {
 
       source.buffer = await audioDataPromise;
       source.connect(audioContext.destination);
-      this.isAISpeaking = true;
       this.emit(VoiceInteractionService.Events.AI_SPEECH_START);
       source.start(0); 
       
       this.monitorDuringAISpeech();
     } catch (error) {
       console.error('Error playing AI response:', error);
-      this.isAISpeaking = false;
       this.emit(VoiceInteractionService.Events.AI_SPEECH_END);
     }
   }
 
   private monitorDuringAISpeech() { 
-    if (!this.analyser || !this.isAISpeaking) {
+    if (!this.analyser) {
       return;
     }
     
     const dataArray = new Float32Array(this.analyser.frequencyBinCount);
     
     const checkAudioLevel = () => {
-      if (!this.analyser || !this.isAISpeaking) return;
+      if (!this.analyser) return;
       
       this.analyser.getFloatTimeDomainData(dataArray);
       const volume = Math.max(...Array.from(dataArray).map(Math.abs));
       const db = 20 * Math.log10(volume);
-      const interruptionThreshold = -12;
 
-      if (db > interruptionThreshold && this.isAISpeaking) { 
+      if (db > this.interruptionThreshold) { 
         if (this.audioSource) {
           try {
             this.audioSource.stop();
@@ -522,20 +592,18 @@ class VoiceInteractionService extends EventEmitter {
           this.audioSource = null;
         }
         
-        this.isAISpeaking = false;
         this.emit(VoiceInteractionService.Events.USER_INTERRUPTION);
         
         setTimeout(() => {
           this.startRecording();
           this.monitorAudioLevel();
-        }, 500);
+        }, 1000);
         
         return;
       }
       
-      if (this.isAISpeaking) {
-        requestAnimationFrame(checkAudioLevel);
-      }
+      // Continue monitoring if no interruption
+      requestAnimationFrame(checkAudioLevel);
     };
     
     requestAnimationFrame(checkAudioLevel);
@@ -546,7 +614,6 @@ class VoiceInteractionService extends EventEmitter {
       try {
         this.audioSource.stop();
         this.audioSource = null;
-        this.isAISpeaking = false;
         this.emit(VoiceInteractionService.Events.AI_SPEECH_END);
       } catch (error) {
         console.error('Error stopping AI response:', error);
@@ -594,7 +661,7 @@ class VoiceInteractionService extends EventEmitter {
     const dataArray = new Float32Array(this.analyser.frequencyBinCount);
 
     const checkAudioLevel = () => {
-      if (!this.analyser || this.isAISpeaking) return;
+      if (!this.analyser) return;
       
       this.analyser.getFloatTimeDomainData(dataArray);
       const volume = Math.max(...Array.from(dataArray).map(Math.abs));
@@ -619,7 +686,7 @@ class VoiceInteractionService extends EventEmitter {
             this.isMonitoring = false;
             const audioBlob = await this.stopRecording();
             this.emit(VoiceInteractionService.Events.USER_SPEECH_END, audioBlob);
-          }, this.silenceDelay);
+          }, this.silenceDelay); // This is now 1000ms (1 second)
         }
       }
       
@@ -673,6 +740,18 @@ class VoiceInteractionService extends EventEmitter {
     });
   }
 
+  public setVoiceThreshold(threshold: number) {
+    this.voiceThreshold = threshold;
+  }
+
+  public setSilenceThreshold(threshold: number) {
+    this.silenceThreshold = threshold;
+  }
+
+  public setInterruptionThreshold(threshold: number) {
+    this.interruptionThreshold = threshold;
+  }
+
   public static getInstance(): VoiceInteractionService {
     if (!VoiceInteractionService.instance) {
       VoiceInteractionService.instance = new VoiceInteractionService();
@@ -685,9 +764,15 @@ class AIConversationService extends EventEmitter {
   private openai: OpenAI;
   private voiceService: VoiceInteractionService;
   private conversationHistory: { role: 'user' | 'assistant' | 'system', content: string }[] = [];
-  private isAISpeaking: boolean = false;
   private systemPrompt: string = '';
   private isProcessing: boolean = false;
+  private isInterviewActive: boolean = false;
+  private abortController: AbortController | null = null;
+  private speechQueue: string[] = [];
+  private isProcessingQueue: boolean = false;
+  private sentenceCount = 0;
+  private sentenceBuffer = '';
+  private targetSentenceBatch = 4;
 
   constructor(apiKey: string, voiceService: VoiceInteractionService) {
     super();
@@ -722,6 +807,16 @@ class AIConversationService extends EventEmitter {
       return;
     }
 
+    if (audioBlob.size < 1024) {
+      console.log('Audio blob too small (likely echo), skipping processing');
+      return;
+    }
+
+    if (!this.isInterviewActive) {
+      console.log('Interview ended, ignoring user response');
+      return;
+    }
+
     this.isProcessing = true;
 
     try {
@@ -751,36 +846,93 @@ class AIConversationService extends EventEmitter {
 
       this.emit('conversationUpdate', this.getConversationHistory());
 
-      const completion = await this.openai.chat.completions.create({
+      // Clear any existing speech queue
+      this.speechQueue = [];
+      
+      this.abortController = new AbortController();
+      
+      const stream = await this.openai.chat.completions.create({
         model: "gpt-4-turbo",
         messages: this.conversationHistory,
         max_tokens: 500,
         temperature: 0.7,
-      });
+        stream: true,
+      }, { signal: this.abortController.signal });
 
-      const aiResponse = completion.choices[0].message.content;
-      if (!aiResponse) {
-        console.log('No AI response generated');
-        this.isProcessing = false;
-        return;
+      let accumulatedText = '';
+      let currentSentence = '';
+
+      for await (const chunk of stream) {
+        if (!this.isInterviewActive) {
+          console.log('Interview ended, stopping text generation');
+          break;
+        }
+
+        const content = chunk.choices[0]?.delta?.content || '';
+        accumulatedText += content;
+        currentSentence += content;
+
+        // Check if we have a complete sentence
+        if (this.isCompleteSentence(currentSentence)) {
+          this.sentenceBuffer += currentSentence.trim() + ' ';
+          this.sentenceCount++;
+          
+          // Process when we have 4 sentences (or at end of stream)
+          if (this.sentenceCount >= this.targetSentenceBatch) {
+            const sentencesToProcess = this.sentenceBuffer.trim();
+            if (sentencesToProcess.length > 0) {
+              this.speechQueue.push(sentencesToProcess);
+              this.updateAISpeakingState();
+              this.processSpeechQueue();
+            }
+            this.sentenceBuffer = '';
+            this.sentenceCount = 0;
+          }
+          currentSentence = '';
+        }
       }
 
+      // Process any remaining sentences (even if less than 4)
+      if (currentSentence.trim().length > 0) {
+        this.sentenceBuffer += currentSentence.trim();
+        this.sentenceCount++;
+      }
+      
+      if (this.sentenceBuffer.trim().length > 0) {
+        this.speechQueue.push(this.sentenceBuffer.trim());
+        this.updateAISpeakingState();
+        this.processSpeechQueue();
+      }
+
+      // Add the complete response to conversation history
       this.conversationHistory.push({
         role: 'assistant',
-        content: aiResponse
+        content: accumulatedText
       });
 
       this.emit('conversationUpdate', this.getConversationHistory());
-
-      await this.speakAIResponse(aiResponse);
       
     } catch (error) {
       console.error('Error handling user response:', error);
       
-      try {
-        await this.speakAIResponse("I'm sorry, I didn't catch that. Could you please try again?");
-      } catch (speechError) {
-        console.error('Error providing error feedback:', speechError);
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('Request was aborted due to interview ending');
+        return;
+      }
+      
+      // ADD THESE LINES: Clear queue and buffer on error
+      this.speechQueue = [];
+      this.sentenceBuffer = '';
+      this.sentenceCount = 0;
+      this.isProcessingQueue = false;
+      this.updateAISpeakingState();
+      
+      if (this.isInterviewActive) {
+        try {
+          await this.speakAIResponseChunked("I'm sorry, I didn't catch that. Could you please try again?");
+        } catch (speechError) {
+          console.error('Error providing error feedback:', speechError);
+        }
       }
     } finally {
       this.isProcessing = false;
@@ -793,20 +945,51 @@ class AIConversationService extends EventEmitter {
 
   public clearConversation() {
     this.conversationHistory = [];
-    this.isAISpeaking = false;
     this.isProcessing = false;
     this.systemPrompt = '';
+    this.speechQueue = [];
+    this.isProcessingQueue = false;
+    this.sentenceCount = 0;
+    this.sentenceBuffer = '';
+    this.targetSentenceBatch = 4;
+    this.updateAISpeakingState(); // ADD THIS LINE
+  }
+
+  public stopProcessing() {
+    this.isInterviewActive = false;
+    this.isProcessing = false;
+    
+    // Clear speech queue
+    this.speechQueue = [];
+    this.isProcessingQueue = false;
+    
+    // ADD THESE LINES: Clear sentence batch
+    this.sentenceBuffer = '';
+    this.sentenceCount = 0;
+    
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
+    
+    this.removeAllListeners();
   }
 
   async startConversation(interviewContext: string, agentId: string = 'Emily') {
     try {     
+      this.isInterviewActive = true;
       this.systemPrompt = `You are ${agentId}, an AI interviewer. ${interviewContext}`;
       this.conversationHistory = [{
         role: 'system',
         content: this.systemPrompt
-      }];
+      }]; 
 
-      const completion = await this.openai.chat.completions.create({
+      // Clear any existing speech queue
+      this.speechQueue = [];
+      
+      this.abortController = new AbortController();
+      
+      const stream = await this.openai.chat.completions.create({
         model: "gpt-4-turbo",
         messages: [
           ...this.conversationHistory,
@@ -817,24 +1000,71 @@ class AIConversationService extends EventEmitter {
         ],
         max_tokens: 50,
         temperature: 0.7,
-      });
+        stream: true,
+      }, { signal: this.abortController.signal }); 
 
-      const initialPrompt = completion.choices[0].message.content;
-      if (!initialPrompt) {
-        throw new Error('Failed to generate initial prompt');
+      let accumulatedText = '';
+      let currentSentence = '';
+
+      console.log("STREAM", stream) // log the stream to the console to find what is 
+
+      for await (const chunk of stream) {
+        if (!this.isInterviewActive) {
+          console.log('Interview start was aborted');
+          break;
+        }
+
+        const content = chunk.choices[0]?.delta?.content || '';
+        accumulatedText += content;
+        currentSentence += content;
+
+        // Check if we have a complete sentence
+        if (this.isCompleteSentence(currentSentence)) {
+          this.sentenceBuffer += currentSentence.trim() + ' ';
+          this.sentenceCount++;
+          
+          // Process when we have 4 sentences (or at end of stream)
+          if (this.sentenceCount >= this.targetSentenceBatch) {
+            const sentencesToProcess = this.sentenceBuffer.trim();
+            if (sentencesToProcess.length > 0) {
+              this.speechQueue.push(sentencesToProcess);
+              this.updateAISpeakingState();
+              this.processSpeechQueue();
+            }
+            this.sentenceBuffer = '';
+            this.sentenceCount = 0;
+          }
+          currentSentence = '';
+        }
       }
 
+      // Process any remaining sentences (even if less than 4)
+      if (currentSentence.trim().length > 0) {
+        this.sentenceBuffer += currentSentence.trim();
+        this.sentenceCount++;
+      }
+
+      if (this.sentenceBuffer.trim().length > 0) {
+        this.speechQueue.push(this.sentenceBuffer.trim());
+        this.updateAISpeakingState();
+        this.processSpeechQueue();
+      }
+
+      // Add the complete response to conversation history
       this.conversationHistory.push({
         role: 'assistant',
-        content: initialPrompt
+        content: accumulatedText
       });
 
       this.emit('conversationUpdate', this.getConversationHistory());
-
-      await this.speakAIResponse(initialPrompt);
       
     } catch (error) {
       console.error('Error starting conversation:', error);
+      
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('Conversation start was aborted');
+        return;
+      }
       
       if (error instanceof Error) {
         if (error.message.includes('401')) {
@@ -852,39 +1082,63 @@ class AIConversationService extends EventEmitter {
     }
   } 
 
-  private async speakAIResponse(text: string) {
-    if (this.isAISpeaking) {
-      console.log('AI is already speaking, queuing response...');
-      return;
-    }
-
-    this.isAISpeaking = true;
+  private async speakAIResponseChunked(text: string) {
+    if (!this.isInterviewActive) return;
     
-    try {
+    // Split text into sentences
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+    
+    // Add sentences to queue
+    this.speechQueue.push(...sentences);
+    
+    // Start processing queue if not already running
+    if (!this.isProcessingQueue) {
+      this.processSpeechQueue();
+    }
+  }
 
-      const speechResponse = await this.openai.audio.speech.create({
-        model: "tts-1",
-        voice: "nova",
-        input: text,
-        speed: 1.0,
-      });
+  private async processSpeechQueue() {
+    if (this.isProcessingQueue || this.speechQueue.length === 0) return;
+    
+    this.isProcessingQueue = true;
+    this.updateAISpeakingState();
+    
+    while (this.speechQueue.length > 0 && this.isInterviewActive) {
+      const sentence = this.speechQueue.shift()!;
+      
+      try {
+        const speechResponse = await this.openai.audio.speech.create({
+          model: "tts-1",
+          voice: "nova",
+          input: sentence.trim(),
+          speed: 1.0,
+        });
 
-      const audioBuffer = await speechResponse.arrayBuffer();    
-      await this.voiceService.playAIResponse(audioBuffer);
-      
-    } catch (error) {
-      console.error('Error in speakAIResponse:', error);
-      
-      this.voiceService.emit(VoiceInteractionService.Events.AI_SPEECH_END);
-      
-      throw error;
-    } finally {
-      this.isAISpeaking = false;
+        const audioBuffer = await speechResponse.arrayBuffer();
+        await this.voiceService.playAIResponse(audioBuffer);
+        
+        await new Promise(resolve => {
+          this.voiceService.once(VoiceInteractionService.Events.AI_SPEECH_END, resolve);
+        });
+        
+      } catch (error) {
+        console.error('Speech queue error:', error);
+      }
+    }
+    
+    this.isProcessingQueue = false;
+    this.updateAISpeakingState();
+    
+    // ADD THIS: Clear any remaining sentence buffer after queue is empty
+    if (this.speechQueue.length === 0) {
+      this.sentenceBuffer = '';
+      this.sentenceCount = 0;
+      this.updateAISpeakingState();
     }
   }
 
   public async speak(text: string) {
-    await this.speakAIResponse(text);
+    await this.speakAIResponseChunked(text);
   }
 
   public getConversationHistory() {
@@ -895,7 +1149,25 @@ class AIConversationService extends EventEmitter {
     return this.isProcessing;
   }
 
-  public get speaking() {
-    return this.isAISpeaking;
+  private isCompleteSentence(text: string): boolean {
+    const sentenceEndings = ['.', '!', '?', ':', ';'];
+    return sentenceEndings.some(ending => text.trim().endsWith(ending));
+  }
+
+  public get isAISpeaking(): boolean {
+    return this.speechQueue.length > 0 || this.isProcessingQueue || this.sentenceBuffer.length > 0;
+  }
+
+  public setSentenceBatchSize(size: number) {
+    this.targetSentenceBatch = size;
+  }
+
+  public get sentenceBatchSize(): number {
+    return this.targetSentenceBatch;
+  }
+
+  private updateAISpeakingState() {
+    const isSpeaking = this.isAISpeaking; // Use the getter instead of duplicating logic
+    this.emit('aiSpeakingStateChange', isSpeaking);
   }
 }
